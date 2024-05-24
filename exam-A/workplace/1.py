@@ -411,3 +411,96 @@ print(f"总购电量节省(kWh): {savings_purchase:.2f}")
 print(f"总弃电量减少(kWh): {savings_waste:.2f}")
 print(f"总供电成本节省(元): {savings_cost:.2f}")
 print(f"单位电量平均供电成本减少(元/kWh): {savings_average_cost:.2f}")
+print()
+
+##### 问题3：园区风、光、储能的协调配置方案及其经济性分析 #####
+
+#############################
+# 分别按各园区独立运营、联合运营
+# 制定风光储协调配置方案
+#############################
+
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+# 读取负荷数据和风光发电数据
+load_data = pd.read_excel('./mnt/data/附件1：各园区典型日负荷数据.xlsx')
+generation_data_12months = pd.read_excel('./mnt/data/附件3：12个月各园区典型日风光发电数据.xlsx')
+
+# 更新负荷数据（增长50%）
+load_data['园区A负荷(kW)'] *= 1.5
+load_data['园区B负荷(kW)'] *= 1.5
+load_data['园区C负荷(kW)'] *= 1.5
+load_data['总负荷(kW)'] = load_data['园区A负荷(kW)'] + load_data['园区B负荷(kW)'] + load_data['园区C负荷(kW)']
+
+# 设置时间列为索引并将时间转换为小时数
+load_data['时间（h）'] = pd.to_datetime(load_data['时间（h）'], format='%H:%M:%S')
+load_data.set_index('时间（h）', inplace=True)
+load_data.index = load_data.index.hour
+
+# 删除重复索引
+load_data = load_data[~load_data.index.duplicated(keep='first')]
+
+# 转换风光发电数据为数值类型并设置索引
+generation_data_12months['时间（h）'] = pd.to_datetime(generation_data_12months['时间（h）'], format='%H:%M:%S')
+generation_data_12months.set_index('时间（h）', inplace=True)
+generation_data_12months.index = generation_data_12months.index.hour
+
+# 删除重复索引
+generation_data_12months = generation_data_12months[~generation_data_12months.index.duplicated(keep='first')]
+
+# 转换数据为数值类型
+generation_data_12months = generation_data_12months.apply(pd.to_numeric, errors='coerce')
+
+# 创建一个新的DataFrame用于存储清理后的数据
+cleaned_generation_data = pd.DataFrame(index=generation_data_12months.index)
+
+# 处理每个月的数据
+for i, month in enumerate(['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']):
+    cleaned_generation_data[f'{month}_园区A 光伏出力(kW)'] = generation_data_12months[month] * 750 * 1.5
+    cleaned_generation_data[f'{month}_园区B 风电出力(kW)'] = generation_data_12months.iloc[:, i * 4 + 1] * 1000 * 1.5
+    cleaned_generation_data[f'{month}_园区C 光伏出力(kW)'] = generation_data_12months.iloc[:, i * 4 + 2] * 600 * 1.5
+    cleaned_generation_data[f'{month}_园区C 风电出力(kW)'] = generation_data_12months.iloc[:, i * 4 + 3] * 500 * 1.5
+
+# 计算总发电量
+cleaned_generation_data['总发电(kW)'] = cleaned_generation_data.sum(axis=1)
+
+# 合并负荷数据和发电数据
+features = pd.concat([load_data[['园区A负荷(kW)', '园区B负荷(kW)', '园区C负荷(kW)', '总负荷(kW)']], cleaned_generation_data['总发电(kW)']], axis=1)
+features = features.dropna()
+
+# 定义目标变量：购电量和购电成本
+features['购电量(kW)'] = np.maximum(features['总负荷(kW)'] - features['总发电(kW)'], 0)
+features['购电成本(元)'] = features.index.map(lambda x: 1 if 7 <= x < 22 else 0.4) * features['购电量(kW)']
+
+# 分割数据集为训练集和测试集
+X = features.drop(['购电量(kW)', '购电成本(元)'], axis=1)
+y = features[['购电量(kW)', '购电成本(元)']]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 训练线性回归模型
+lr_model = LinearRegression()
+lr_model.fit(X_train, y_train)
+
+# 预测购电量和购电成本
+y_pred = lr_model.predict(X_test)
+
+# 计算均方误差
+mse = mean_squared_error(y_test, y_pred)
+print(f'均方误差: {mse}')
+
+# 输出预测结果
+predicted_results = pd.DataFrame(y_pred, columns=['预测购电量(kW)', '预测购电成本(元)'])
+print(predicted_results.head())
+
+# 计算总购电量和总购电成本
+total_purchase_pred = predicted_results['预测购电量(kW)'].sum()
+total_cost_pred = predicted_results['预测购电成本(元)'].sum()
+
+# 输出结果
+print(f"预测的总购电量(kWh): {total_purchase_pred:.2f}")
+print(f"预测的总购电成本(元): {total_cost_pred:.2f}")
