@@ -198,72 +198,67 @@ for key, value in result_storage.items():
     print(f"\n{key} 结果（配置储能后）：")
     for sub_key, sub_value in value.items():
         print(f"{sub_key}: {sub_value:.2f}")
+print()
 
 #######################################
 # 判断50kW/100kWh的方案是否最优
 # 并制定各园区最优的储能功率和容量配置方案
 #######################################
 
-from scipy.optimize import minimize
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import GridSearchCV
 
-# 储能参数
-years = 10  # 运行寿命 (年)
-cost_per_kWh = 1  # 购电成本 (元/kWh)
-storage_cost_power = 800  # 储能功率单价 (元/kW)
-storage_cost_capacity = 1800  # 储能容量单价 (元/kWh)
-charge_efficiency = 0.95
-discharge_efficiency = 0.95
-hours_per_day = 24
+# 准备数据
+# 我们需要生成一些特征和目标数据，用于机器学习模型的训练
+# 特征包括：负荷、发电、储能参数等
+# 目标包括：总供电成本、弃电量等
 
-# 计算储能优化后购电量的函数
-def calculate_purchase(storage_power, storage_capacity, load, generation, initial_soc, min_soc, max_soc):
-    soc = initial_soc
-    purchase = 0
-    for i in range(len(load)):
-        if load[i] > generation[i]:  # 放电
-            discharge = min((load[i] - generation[i]) / discharge_efficiency, storage_power)
-            actual_discharge = min(discharge, soc - storage_capacity * min_soc)
-            soc -= actual_discharge
-            purchase += max(load[i] - generation[i] - actual_discharge * discharge_efficiency, 0)
-        else:  # 充电
-            charge = min((generation[i] - load[i]) * charge_efficiency, storage_power)
-            actual_charge = min(charge, storage_capacity * max_soc - soc)
-            soc += actual_charge
-    return purchase
+# 生成特征数据
+features = data[['园区A负荷(kW)', '园区A 总出力(kW)', '园区B负荷(kW)', '园区B 总出力(kW)', '园区C负荷(kW)', '园区C 总出力(kW)']]
 
-# 目标函数：最小化总成本 = 储能成本 + 购电成本
-def total_cost(x):
-    P_A, E_A, P_B, E_B, P_C, E_C = x
-    storage_cost = (P_A * storage_cost_power + E_A * storage_cost_capacity + P_B * storage_cost_power + E_B * storage_cost_capacity + P_C * storage_cost_power + E_C * storage_cost_capacity) * years
-    purchase_cost_A = calculate_purchase(P_A, E_A, data['园区A负荷(kW)'], data['园区A 总出力(kW)'], SOC_initial, SOC_min, SOC_max) * cost_per_kWh
-    purchase_cost_B = calculate_purchase(P_B, E_B, data['园区B负荷(kW)'], data['园区B 总出力(kW)'], SOC_initial, SOC_min, SOC_max) * cost_per_kWh
-    purchase_cost_C = calculate_purchase(P_C, E_C, data['园区C负荷(kW)'], data['园区C 总出力(kW)'], SOC_initial, SOC_min, SOC_max) * cost_per_kWh
-    total_purchase_cost = purchase_cost_A + purchase_cost_B + purchase_cost_C
-    return storage_cost + total_purchase_cost
+# 生成目标数据
+# 这里我们假设目标数据是购电量、弃电量和总供电成本的加权和
+data['总供电成本'] = data['园区A 购电量(kW)'] * 1 + data['园区B 购电量(kW)'] * 1 + data['园区C 购电量(kW)'] * 1
+data['弃电量'] = data['园区A 弃光电量(kW)'] + data['园区B 弃风电量(kW)'] + data['园区C 弃光弃风电量(kW)']
+data['目标'] = data['总供电成本'] + data['弃电量'] * 0.1
 
-# 约束条件
-constraints = [
-    {'type': 'ineq', 'fun': lambda x: x[0]},  # P_A >= 0
-    {'type': 'ineq', 'fun': lambda x: x[1]},  # E_A >= 0
-    {'type': 'ineq', 'fun': lambda x: x[2]},  # P_B >= 0
-    {'type': 'ineq', 'fun': lambda x: x[3]},  # E_B >= 0
-    {'type': 'ineq', 'fun': lambda x: x[4]},  # P_C >= 0
-    {'type': 'ineq', 'fun': lambda x: x[5]}   # E_C >= 0
-]
+# 拆分训练集和测试集
+X = features.values
+y = data['目标'].values
 
-# 初始猜测值
-x0 = [50, 100, 50, 100, 50, 100]
+# 创建随机森林回归模型
+rf = RandomForestRegressor()
 
-# 优化求解
-result = minimize(total_cost, x0, method='SLSQP', constraints=constraints)
+# 定义参数网格用于网格搜索
+param_grid = {
+    'n_estimators': [100, 200, 300],
+    'max_depth': [10, 20, 30],
+    'min_samples_split': [2, 5, 10]
+}
 
-# 提取结果
-optimal_storage_power_A = result.x[0]
-optimal_storage_capacity_A = result.x[1]
-optimal_storage_power_B = result.x[2]
-optimal_storage_capacity_B = result.x[3]
-optimal_storage_power_C = result.x[4]
-optimal_storage_capacity_C = result.x[5]
+# 网格搜索
+grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=5, scoring='neg_mean_squared_error', n_jobs=-1)
+grid_search.fit(X, y)
+
+# 最优参数
+best_params = grid_search.best_params_
+best_rf = grid_search.best_estimator_
+
+# 输出最优参数
+print("最优参数：", best_params)
+
+# 使用最优模型进行预测
+y_pred = best_rf.predict(X)
+
+# 计算最优储能配置方案
+optimal_storage_power_A = np.mean(y_pred[:len(data['园区A负荷(kW)'])]) * storage_power
+optimal_storage_capacity_A = np.mean(y_pred[:len(data['园区A负荷(kW)'])]) * storage_capacity
+optimal_storage_power_B = np.mean(y_pred[:len(data['园区B负荷(kW)'])]) * storage_power
+optimal_storage_capacity_B = np.mean(y_pred[:len(data['园区B负荷(kW)'])]) * storage_capacity
+optimal_storage_power_C = np.mean(y_pred[:len(data['园区C负荷(kW)'])]) * storage_power
+optimal_storage_capacity_C = np.mean(y_pred[:len(data['园区C负荷(kW)'])]) * storage_capacity
 
 # 输出结果
 print(f"最优储能配置方案：")
