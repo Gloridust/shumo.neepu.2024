@@ -1,3 +1,5 @@
+##### 问题1：各园区独立运营储能配置方案及其经济性分析 #####
+
 import pandas as pd
 
 # 读取附件1：各园区典型日负荷数据
@@ -268,3 +270,144 @@ print(f"园区B储能功率: {optimal_storage_power_B:.2f} kW")
 print(f"园区B储能容量: {optimal_storage_capacity_B:.2f} kWh")
 print(f"园区C储能功率: {optimal_storage_power_C:.2f} kW")
 print(f"园区C储能容量: {optimal_storage_capacity_C:.2f} kWh")
+print()
+
+##### 问题2：联合园区储能配置方案及其经济性分析 #####
+
+#####################################################################
+# 若未配置储能，分析联合园区运行经济性
+# 包括：联合园区的总购电量、总弃风弃光电量、总供电成本和单位电量平均供电成本
+#####################################################################
+
+import pandas as pd
+
+# 读取负荷数据
+load_data = pd.read_excel('./mnt/data/附件1：各园区典型日负荷数据.xlsx')
+generation_data = pd.read_excel('./mnt/data/附件2：各园区典型日风光发电数据.xlsx')
+
+# 将时间转换为datetime类型
+load_data['时间（h）'] = pd.to_datetime(load_data['时间（h）'], format='%H:%M:%S')
+generation_data['时间（h）'] = pd.to_datetime(generation_data['时间（h）'], format='%H:%M:%S')
+
+# 设置时间为索引
+load_data.set_index('时间（h）', inplace=True)
+generation_data.set_index('时间（h）', inplace=True)
+
+# 计算各园区的总负荷和总发电
+load_data['总负荷(kW)'] = load_data['园区A负荷(kW)'] + load_data['园区B负荷(kW)'] + load_data['园区C负荷(kW)']
+generation_data['总光伏出力(kW)'] = generation_data['园区A 光伏出力（p.u.）'] * 750 + generation_data['园区C 光伏出力（p.u.）'] * 600
+generation_data['总风电出力(kW)'] = generation_data['园区B风电出力（p.u.）'] * 1000 + generation_data['园区C 风电出力（p.u.）'] * 500
+generation_data['总发电(kW)'] = generation_data['总光伏出力(kW)'] + generation_data['总风电出力(kW)']
+
+# 合并负荷和发电数据
+combined_data = pd.concat([load_data, generation_data], axis=1)
+
+# 计算购电量和弃电量
+combined_data['购电量(kW)'] = np.maximum(combined_data['总负荷(kW)'] - combined_data['总发电(kW)'], 0)
+combined_data['弃电量(kW)'] = np.maximum(combined_data['总发电(kW)'] - combined_data['总负荷(kW)'], 0)
+
+# 计算总购电量、总弃电量、总供电成本和单位电量平均供电成本
+total_purchase = combined_data['购电量(kW)'].sum()
+total_waste = combined_data['弃电量(kW)'].sum()
+total_cost = total_purchase * 1  # 购电成本为1元/kWh
+average_cost = total_cost / combined_data['总负荷(kW)'].sum()
+
+# 输出结果
+print(f"联合园区未配置储能时的经济性分析：")
+print(f"总购电量(kWh): {total_purchase:.2f}")
+print(f"总弃电量(kWh): {total_waste:.2f}")
+print(f"总供电成本(元): {total_cost:.2f}")
+print(f"单位电量平均供电成本(元/kWh): {average_cost:.2f}")
+print()
+
+#####################################
+# 假设风光荷功率波动特性保持上述条件不变
+# 制定联合园区的总储能最优配置方案
+#####################################
+
+# 线性规划
+
+from scipy.optimize import linprog
+
+# 储能参数设置
+storage_cost_power = 800  # 储能功率单价 (元/kW)
+storage_cost_capacity = 1800  # 储能容量单价 (元/kWh)
+years = 10  # 运行寿命 (年)
+
+# 目标函数系数 (总成本)
+c = [
+    storage_cost_power * years,  # 联合园区储能功率成本
+    storage_cost_capacity * years  # 联合园区储能容量成本
+]
+
+# 约束条件 (购电量减少)
+# 计算配置储能后的购电量和弃电量
+# 我们假设储能效率为95%，SOC范围为10%-90%
+charge_efficiency = 0.95
+discharge_efficiency = 0.95
+SOC_min = 0.10
+SOC_max = 0.90
+
+# 初始化数据
+combined_data['SOC'] = 0.50 * 100  # 假设初始SOC为50%的100kWh
+combined_data['购电量_储能后(kW)'] = combined_data['购电量(kW)']
+combined_data['弃电量_储能后(kW)'] = combined_data['弃电量(kW)']
+
+# 储能充放电策略模拟
+for index, row in combined_data.iterrows():
+    # 如果负荷大于发电，放电
+    if row['总负荷(kW)'] > row['总发电(kW)']:
+        discharge = min((row['总负荷(kW)'] - row['总发电(kW)']) / discharge_efficiency, 50)
+        actual_discharge = min(discharge, (row['SOC'] - 100 * SOC_min))
+        combined_data.at[index, 'SOC'] -= actual_discharge
+        combined_data.at[index, '购电量_储能后(kW)'] = max(row['总负荷(kW)'] - row['总发电(kW)'] - actual_discharge * discharge_efficiency, 0)
+    # 如果负荷小于发电，充电
+    else:
+        charge = min((row['总发电(kW)'] - row['总负荷(kW)']) * charge_efficiency, 50)
+        actual_charge = min(charge, (100 * SOC_max - row['SOC']))
+        combined_data.at[index, 'SOC'] += actual_charge
+        combined_data.at[index, '弃电量_储能后(kW)'] = max(row['总发电(kW)'] - row['总负荷(kW)'] - actual_charge / charge_efficiency, 0)
+
+# 计算配置储能后的购电量和弃电量
+total_purchase_storage = combined_data['购电量_储能后(kW)'].sum()
+total_waste_storage = combined_data['弃电量_储能后(kW)'].sum()
+total_cost_storage = total_purchase_storage * 1  # 购电成本为1元/kWh
+average_cost_storage = total_cost_storage / combined_data['总负荷(kW)'].sum()
+
+# 输出结果
+print(f"联合园区配置储能后的经济性分析：")
+print(f"总购电量(kWh): {total_purchase_storage:.2f}")
+print(f"总弃电量(kWh): {total_waste_storage:.2f}")
+print(f"总供电成本(元): {total_cost_storage:.2f}")
+print(f"单位电量平均供电成本(元/kWh): {average_cost_storage:.2f}")
+print()
+
+######################
+# 与各园区独立运营相比
+# 联合运营的经济收益分析
+######################
+
+# 各园区独立运营总量
+total_purchase_independent = 4874.12 + 2432.30 + 2699.39
+total_waste_independent = 951.20 + 897.50 + 1128.02
+total_cost_independent = 4874.12 + 2432.30 + 2699.39
+average_cost_independent = total_cost_independent / (data['园区A负荷(kW)'].sum() + data['园区B负荷(kW)'].sum() + data['园区C负荷(kW)'].sum())
+
+# 联合运营总量
+total_purchase_joint = total_purchase_storage
+total_waste_joint = total_waste_storage
+total_cost_joint = total_cost_storage
+average_cost_joint = average_cost_storage
+
+# 计算经济收益变化
+savings_purchase = total_purchase_independent - total_purchase_joint
+savings_waste = total_waste_independent - total_waste_joint
+savings_cost = total_cost_independent - total_cost_joint
+savings_average_cost = average_cost_independent - average_cost_joint
+
+# 输出结果
+print(f"各园区独立运营 vs 联合运营的经济性对比：")
+print(f"总购电量节省(kWh): {savings_purchase:.2f}")
+print(f"总弃电量减少(kWh): {savings_waste:.2f}")
+print(f"总供电成本节省(元): {savings_cost:.2f}")
+print(f"单位电量平均供电成本减少(元/kWh): {savings_average_cost:.2f}")
