@@ -10,7 +10,7 @@ print(load_data.head())
 # 读取附件2：各园区典型日风光发电数据
 generation_data = pd.read_excel('./mnt/data/附件2：各园区典型日风光发电数据.xlsx')
 print("\n各园区典型日风光发电数据：")
-print(generation_data.head())
+print(generation_data)
 
 ###############################
 # 计算各园区的购电量和弃风弃光电量
@@ -495,7 +495,8 @@ print(f'均方误差: {mse}')
 
 # 输出预测结果
 predicted_results = pd.DataFrame(y_pred, columns=['预测购电量(kW)', '预测购电成本(元)'])
-print(predicted_results.head())
+print(predicted_results)
+print()
 
 # 计算总购电量和总购电成本
 total_purchase_pred = predicted_results['预测购电量(kW)'].sum()
