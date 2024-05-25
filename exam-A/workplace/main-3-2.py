@@ -58,3 +58,4 @@ print(f"总投资成本（园区B）：{total_cost_B} 元")
 print(f"年度节约成本（园区B）：{annual_savings_B} 元")
 print(f"总投资成本（园区C）：{total_cost_C} 元")
 print(f"年度节约成本（园区C）：{annual_savings_C} 元")
+
