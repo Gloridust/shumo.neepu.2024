@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # A 题：园区微电网风光储协调优化配置 
 
 print(
@@ -690,3 +691,55 @@ print(f"总弃电量减少(kWh): {savings_waste:.2f}")
 print(f"总供电成本节省(元): {savings_cost:.2f}")
 print(f"单位电量平均供电成本减少(元/kWh): {savings_average_cost:.2f}")
 print()
+
+########## 可视化##########
+
+import matplotlib.pyplot as plt
+
+# Comparison of Purchased and Wasted Energy Before and After Energy Storage Implementation
+parks = ['Park A', 'Park B', 'Park C']
+before_purchase = [total_purchase_A, total_purchase_B, total_purchase_C]
+after_purchase = [total_purchase_A_storage, total_purchase_B_storage, total_purchase_C_storage]
+before_waste = [total_waste_A, total_waste_B, total_waste_C]
+after_waste = [total_waste_A_storage, total_waste_B_storage, total_waste_C_storage]
+
+plt.figure(figsize=(10, 6))
+bar_width = 0.35
+index = range(len(parks))
+
+plt.bar(index, before_purchase, bar_width, label='Before Energy Storage', color='b')
+plt.bar(index, before_waste, bar_width, label='Before Energy Storage', color='r', bottom=before_purchase)
+plt.bar([i + bar_width for i in index], after_purchase, bar_width, label='After Energy Storage', color='g')
+plt.bar([i + bar_width for i in index], after_waste, bar_width, label='After Energy Storage', color='y', bottom=after_purchase)
+
+plt.xlabel('Parks')
+plt.ylabel('Energy (kWh)')
+plt.title('Comparison of Purchased and Wasted Energy Before and After Energy Storage Implementation')
+plt.xticks([i + bar_width / 2 for i in index], parks)
+plt.legend(['Before Purchase', 'Before Waste', 'After Purchase', 'After Waste'])
+plt.tight_layout()
+plt.show()
+
+# Optimal Energy Storage Configuration
+storage_powers = np.linspace(0, 200, 20)
+storage_capacities = np.linspace(0, 500, 20)
+costs = []
+
+for power in storage_powers:
+    for capacity in storage_capacities:
+        total_cost = simulate_storage_operation(power, capacity)[2]
+        costs.append(total_cost)
+
+storage_powers, storage_capacities = np.meshgrid(storage_powers, storage_capacities)
+costs = np.array(costs).reshape(storage_powers.shape)
+
+fig = plt.figure(figsize=(10, 6))
+ax = fig.add_subplot(111, projection='3d')
+surf = ax.plot_surface(storage_powers, storage_capacities, costs, cmap='viridis')
+fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
+ax.set_xlabel('Storage Power (kW)')
+ax.set_ylabel('Storage Capacity (kWh)')
+ax.set_zlabel('Total Cost')
+ax.set_title('Optimal Energy Storage Configuration')
+plt.show()
+
