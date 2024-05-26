@@ -303,7 +303,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import GridSearchCV
 
 # 准备数据
-# 我们需要生成一些特征和目标数据，用于机器学习模型的训练
+# 生成一些特征和目标数据，用于机器学习模型的训练
 # 特征包括：负荷、发电、储能参数等
 # 目标包括：总供电成本、弃电量等
 
@@ -690,9 +690,3 @@ print(f"总弃电量减少(kWh): {savings_waste:.2f}")
 print(f"总供电成本节省(元): {savings_cost:.2f}")
 print(f"单位电量平均供电成本减少(元/kWh): {savings_average_cost:.2f}")
 print()
-
-print(
-    """
-    ##### 问题3：园区风、光、储能的协调配置方案及其经济性分析 #####
-    """
-)
